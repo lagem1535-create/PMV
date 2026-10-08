@@ -15,19 +15,24 @@ Cloudflare Worker 에 host 로 붙고, 폰(viewer)과 Worker 가 짝지어지면
   - --install 로 Windows 시작프로그램에 등록하면 부팅 시 자동(숨김) 실행됩니다.
     → 터미널/파이썬 창을 계속 띄워 둘 필요가 없습니다.
 
-설정(아래 우선순위: 명령행 > 환경변수 > pal_relay_config.json 파일 > 기본값):
+연결 코드(room)는 자동입니다: 폰 앱에서 로그인한 계정과 "같은 계정"의 이메일/
+비밀번호를 여기 릴레이에도 한 번 넣어주면, 그 계정의 UID를 자동으로 알아내서
+연결 코드로 사용합니다. 즉 직접 코드를 정하거나 맞출 필요가 없습니다.
+
+설정(우선순위: 명령행 > 환경변수 > pal_relay_config.json 파일 > 기본값):
     worker   Worker WebSocket 주소   예) wss://pmv.<서브도메인>.workers.dev
-    room     연결 코드(폰 앱과 동일, 길고 무작위로)   예) 3f9a1c7b2e...
+    email    폰 앱과 같은 Firebase 계정 이메일
+    password 그 계정 비밀번호
     key      HOST_KEY (Worker secret 설정했을 때만)
     aux_host 보조 PC 주소(기본 127.0.0.1 = 이 PC 자신)
     aux_port 보조 PC 포트(기본 58712)
     secret   보조 PC 연결 암호(SECRET, 기본 1234)
+    room     (보통 비워둠) 연결 코드를 직접 지정하고 싶을 때만
 
 실행:
     pip install websockets
-    python relay_agent.py --worker wss://... --room <코드> --secret 1234
-    # 설정을 pal_relay_config.json 에 저장하고 자동시작 등록:
-    python relay_agent.py --install
+    # 설정 저장 + UID 자동 조회 + 자동시작 등록 + 숨김 실행:
+    python relay_agent.py --install --worker wss://... --email you@example.com --password ****  --secret 1234
 """
 
 import argparse
@@ -49,6 +54,10 @@ AUTORUN_VALUE = "PALmonitor_RelayAgent"
 AUTORUN_REG_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
 ALLOWED_UPSTREAM = {"input", "cmd", "ping"}
+
+# 폰 앱과 같은 Firebase 프로젝트(fir-2-f3b80)의 웹 API 키(공개값).
+# 계정 UID를 자동 조회(signInWithPassword)하는 데만 씁니다.
+DEFAULT_API_KEY = "AIzaSyCXqCgMZV-8bRwy3cqT21mFToAkd2o4kiA"
 
 
 # ---------- auxiliary 프로토콜 (asyncio) ----------
@@ -85,7 +94,8 @@ async def aux_recv(reader):
 # ---------- 설정 ----------
 def load_config(args):
     cfg = {"aux_host": "127.0.0.1", "aux_port": 58712, "secret": "1234",
-           "worker": "", "room": "", "key": ""}
+           "worker": "", "room": "", "key": "",
+           "email": "", "password": "", "apikey": DEFAULT_API_KEY}
     if os.path.exists(CONFIG_PATH):
         try:
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -107,6 +117,28 @@ def save_config(cfg):
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
     print(f"설정 저장: {CONFIG_PATH}")
+
+
+def resolve_room(cfg):
+    """연결 코드(room) 결정: 이미 있으면 그대로, 없으면 이메일/비번으로 계정 UID 조회."""
+    if cfg.get("room"):
+        return cfg["room"]
+    email, password = cfg.get("email"), cfg.get("password")
+    apikey = cfg.get("apikey") or DEFAULT_API_KEY
+    if not email or not password:
+        raise RuntimeError("room(연결 코드)을 정할 수 없습니다. --email 과 --password 를 지정하세요.")
+    import urllib.request
+    url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={apikey}"
+    body = json.dumps({"email": email, "password": password,
+                       "returnSecureToken": True}).encode("utf-8")
+    req = urllib.request.Request(url, data=body,
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    uid = data.get("localId")
+    if not uid:
+        raise RuntimeError("계정 UID 조회 실패(이메일/비밀번호 확인).")
+    return uid
 
 
 # ---------- Windows 자동시작 ----------
@@ -223,9 +255,10 @@ async def bridge_aux(ws, cfg):
 
 
 async def run(cfg):
-    url = (f'{cfg["worker"].rstrip("/")}/ws?room={cfg["room"]}&role=host'
+    room = cfg["room"]
+    url = (f'{cfg["worker"].rstrip("/")}/ws?room={room}&role=host'
            + (f'&key={cfg["key"]}' if cfg.get("key") else ""))
-    print(f"[릴레이] Worker 접속: {cfg['worker']}  room={cfg['room']}")
+    print(f"[릴레이] Worker 접속: {cfg['worker']}  room={room}")
     backoff = 1
     while True:
         try:
@@ -252,6 +285,7 @@ async def run(cfg):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--worker"); ap.add_argument("--room"); ap.add_argument("--key")
+    ap.add_argument("--email"); ap.add_argument("--password"); ap.add_argument("--apikey")
     ap.add_argument("--aux_host"); ap.add_argument("--aux_port", type=int); ap.add_argument("--secret")
     ap.add_argument("--install", action="store_true", help="설정 저장 + Windows 자동시작 등록 후 숨김 실행")
     ap.add_argument("--uninstall", action="store_true", help="자동시작 등록 해제")
@@ -264,21 +298,34 @@ def main():
     cfg = load_config(args)
 
     if args.install:
-        if not cfg["worker"] or not cfg["room"]:
-            print("--install 전에 최소한 --worker 와 --room 을 함께 지정하세요.")
+        if not cfg["worker"]:
+            print("--install 전에 --worker 를 지정하세요.")
             return
-        save_config(cfg)
+        try:
+            cfg["room"] = resolve_room(cfg)   # 이메일/비번 → 계정 UID 자동
+        except Exception as e:
+            print(f"연결 코드 자동 설정 실패: {e}")
+            return
+        print(f"연결 코드(room) = 계정 UID 자동 설정: {cfg['room']}")
+        # 비밀번호는 저장하지 않음(UID만 저장). 이메일은 참고용으로만 남김.
+        to_save = dict(cfg); to_save["password"] = ""
+        save_config(to_save)
         install_autorun()
-        # 지금 바로 숨김 실행도 시작
         if relaunch_hidden_if_needed():
             print("백그라운드(숨김)로 실행을 시작했습니다.")
             return
 
-    if not cfg["worker"] or not cfg["room"]:
-        print("worker 와 room 설정이 필요합니다. (--worker, --room 또는 pal_relay_config.json)")
+    if not cfg["worker"]:
+        print("worker 설정이 필요합니다. (--worker 또는 pal_relay_config.json)")
         return
+    if not cfg.get("room"):
+        try:
+            cfg["room"] = resolve_room(cfg)
+        except Exception as e:
+            print(f"연결 코드를 정할 수 없습니다: {e}")
+            return
 
-    # 자동시작(pythonw)이 아니라 콘솔로 떴고 --install 도 아니면, 그냥 포그라운드 실행
+    # 콘솔로 떴고 --install 도 아니면 그냥 포그라운드 실행
     try:
         asyncio.run(run(cfg))
     except KeyboardInterrupt:
