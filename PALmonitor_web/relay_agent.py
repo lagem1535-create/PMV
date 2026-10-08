@@ -188,85 +188,147 @@ def relaunch_hidden_if_needed():
 
 
 # ---------- 중계 본체 ----------
-async def bridge_aux(ws, cfg):
-    """viewer 가 온라인인 동안 보조 PC에 붙어 양방향 중계. 끝나면 반환."""
-    # 보조 PC 서버(auxiliary_server)가 그 순간 안 떠 있거나 재시작 중일 수 있으므로
-    # 바로 포기하지 않고 잠깐씩 재시도한다(최대 약 30초). 그동안 폰에는 상태만 알림.
-    reader = writer = None
-    attempt = 0
-    while reader is None:
-        try:
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(cfg["aux_host"], int(cfg["aux_port"])), timeout=5)
-        except Exception as e:
-            attempt += 1
-            if attempt == 1 or attempt % 5 == 0:
-                await ws.send(json.dumps({"type": "info_meta",
-                    "data": {"hostname": "보조 PC 연결 대기중… (서버가 켜져 있는지 확인)"}}))
-            if attempt >= 30:
-                await ws.send(json.dumps({"type": "error",
-                    "data": f"보조 PC에 연결하지 못했습니다. PALmonitor 서버가 실행 중인지 확인하세요. ({e})"}))
-                return
-            await asyncio.sleep(2)
-    try:
-        await aux_send(writer, "auth", str(cfg["secret"]).encode("utf-8"))
-        resp = await aux_recv(reader)
-        if not resp or resp[0] != "auth_ok":
-            await ws.send(json.dumps({"type": "error", "data": "보조 PC 인증 실패(SECRET 확인)"}))
-            return
+GRACE_SECONDS = 12   # 폰이 잠깐 끊겨도 이 시간 안에 돌아오면 보조 연결을 유지(깜빡임 방지)
 
-        stop = asyncio.Event()
 
-        async def aux_to_ws():
-            while not stop.is_set():
-                msg = await aux_recv(reader)
-                if msg is None:
-                    break
-                mtype, payload = msg
-                if mtype == "frame":
-                    await ws.send(payload)  # 바이너리 그대로
-                else:
-                    try:
-                        data = json.loads(payload.decode("utf-8")) if payload else None
-                    except (ValueError, UnicodeDecodeError):
-                        data = payload.decode("utf-8", errors="replace")
-                    await ws.send(json.dumps({"type": mtype, "data": data}))
-            stop.set()
-
-        async def ws_to_aux():
-            try:
-                while not stop.is_set():
-                    raw = await ws.recv()
-                    if isinstance(raw, (bytes, bytearray)):
-                        continue
-                    try:
-                        obj = json.loads(raw)
-                    except ValueError:
-                        continue
-                    t = obj.get("type")
-                    if t == "peer":
-                        if obj.get("data") == "offline":  # 폰이 나감 → 보조 접속 종료
-                            stop.set()
-                            break
-                        continue
-                    if t not in ALLOWED_UPSTREAM:
-                        continue
-                    d = obj.get("data")
-                    if t == "input":
-                        await aux_send(writer, "input", json.dumps(d).encode("utf-8"))
-                    elif t == "cmd":
-                        await aux_send(writer, "cmd", str(d or "").encode("utf-8"))
-                    elif t == "ping":
-                        await aux_send(writer, "ping", b"")
-            except websockets.ConnectionClosed:
-                stop.set()
-
-        await asyncio.gather(aux_to_ws(), ws_to_aux())
-    finally:
+async def _aux_connect(cfg):
+    reader, writer = await asyncio.wait_for(
+        asyncio.open_connection(cfg["aux_host"], int(cfg["aux_port"])), timeout=5)
+    await aux_send(writer, "auth", str(cfg["secret"]).encode("utf-8"))
+    resp = await aux_recv(reader)
+    if not resp or resp[0] != "auth_ok":
         try:
             writer.close()
         except Exception:
             pass
+        raise RuntimeError("auth_failed")
+    return reader, writer
+
+
+async def session(ws, cfg):
+    """
+    한 Worker 연결 동안의 중계. 폰(viewer) 상태를 추적하면서 보조 PC를 붙였다 떼었다 한다.
+    폰이 잠깐 끊겨도(화면 잠금/백그라운드/신호 약함) 보조 연결을 바로 끊지 않고
+    GRACE_SECONDS 만큼 기다렸다가, 그래도 안 돌아오면 그때 정리한다 → 깜빡임/뚝뚝 끊김 방지.
+    """
+    state = {"viewer": False, "writer": None, "aux_task": None, "grace": None}
+
+    async def send_ctrl(obj):
+        try:
+            await ws.send(json.dumps(obj))
+        except Exception:
+            pass
+
+    async def aux_loop():
+        """폰이 있는 동안 보조 PC에 (재)접속해서 프레임을 ws로 흘려보냄."""
+        waited = 0
+        while state["viewer"]:
+            try:
+                reader, writer = await _aux_connect(cfg)
+            except RuntimeError:
+                await send_ctrl({"type": "error", "data": "보조 PC 인증 실패(SECRET 확인)"})
+                return
+            except Exception:
+                waited += 1
+                if waited == 1 or waited % 5 == 0:
+                    await send_ctrl({"type": "info_meta",
+                                     "data": {"hostname": "보조 PC 연결 대기중…"}})
+                await asyncio.sleep(2)
+                continue
+            waited = 0
+            state["writer"] = writer
+            try:
+                while True:
+                    msg = await aux_recv(reader)
+                    if msg is None:
+                        break
+                    mtype, payload = msg
+                    if mtype == "frame":
+                        await ws.send(payload)
+                    else:
+                        try:
+                            data = json.loads(payload.decode("utf-8")) if payload else None
+                        except (ValueError, UnicodeDecodeError):
+                            data = payload.decode("utf-8", errors="replace")
+                        await ws.send(json.dumps({"type": mtype, "data": data}))
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                pass
+            finally:
+                state["writer"] = None
+                try:
+                    writer.close()
+                except Exception:
+                    pass
+            if state["viewer"]:
+                await asyncio.sleep(1)  # 보조 연결이 끊겼는데 폰이 아직 있으면 재접속
+
+    def start_aux():
+        if state["aux_task"] is None or state["aux_task"].done():
+            state["aux_task"] = asyncio.ensure_future(aux_loop())
+
+    async def stop_aux():
+        t = state["aux_task"]
+        state["aux_task"] = None
+        if t and not t.done():
+            t.cancel()
+            try:
+                await t
+            except Exception:
+                pass
+
+    async def offline_grace():
+        try:
+            await asyncio.sleep(GRACE_SECONDS)
+        except asyncio.CancelledError:
+            return
+        if not state["viewer"]:
+            await stop_aux()
+
+    try:
+        async for raw in ws:
+            if isinstance(raw, (bytes, bytearray)):
+                continue
+            try:
+                obj = json.loads(raw)
+            except ValueError:
+                continue
+            t = obj.get("type")
+            if t == "peer":
+                d = obj.get("data")
+                if d == "online":
+                    state["viewer"] = True
+                    if state["grace"] and not state["grace"].done():
+                        state["grace"].cancel()
+                    start_aux()
+                    print("[릴레이] 폰 접속")
+                elif d == "offline":
+                    state["viewer"] = False
+                    if state["grace"] is None or state["grace"].done():
+                        state["grace"] = asyncio.ensure_future(offline_grace())
+                    print("[릴레이] 폰 끊김(유예 대기)")
+                continue
+            if t not in ALLOWED_UPSTREAM:
+                continue
+            w = state["writer"]
+            if w is None:
+                continue
+            d = obj.get("data")
+            try:
+                if t == "input":
+                    await aux_send(w, "input", json.dumps(d).encode("utf-8"))
+                elif t == "cmd":
+                    await aux_send(w, "cmd", str(d or "").encode("utf-8"))
+                elif t == "ping":
+                    await aux_send(w, "ping", b"")
+            except Exception:
+                pass
+    finally:
+        state["viewer"] = False
+        if state["grace"] and not state["grace"].done():
+            state["grace"].cancel()
+        await stop_aux()
 
 
 async def run(cfg):
@@ -277,24 +339,15 @@ async def run(cfg):
     backoff = 1
     while True:
         try:
-            async with websockets.connect(url, max_size=None, ping_interval=20) as ws:
+            async with websockets.connect(url, max_size=None, ping_interval=20,
+                                           ping_timeout=60, close_timeout=5) as ws:
                 print("[릴레이] Worker 연결됨. 폰(viewer) 접속 대기…")
                 backoff = 1
-                async for raw in ws:
-                    if isinstance(raw, (bytes, bytearray)):
-                        continue
-                    try:
-                        obj = json.loads(raw)
-                    except ValueError:
-                        continue
-                    if obj.get("type") == "peer" and obj.get("data") == "online":
-                        print("[릴레이] 폰 접속 → 보조 PC 중계 시작")
-                        await bridge_aux(ws, cfg)
-                        print("[릴레이] 중계 종료. 다시 대기…")
+                await session(ws, cfg)
         except Exception as e:
-            print(f"[릴레이] 연결 끊김: {e} — {backoff}s 후 재시도")
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, 30)
+            print(f"[릴레이] 연결 끊김: {e}")
+        await asyncio.sleep(backoff)
+        backoff = min(backoff * 2, 5)   # 재접속은 빠르게(최대 5초)
 
 
 def main():
