@@ -2,38 +2,46 @@
 setlocal
 cd /d "%~dp0"
 title PALmonitor Remote
-
 echo ================================================
 echo   PALmonitor Remote - turning on
 echo ================================================
 echo.
 
-where python >/dev/null 2>&1
-if %errorlevel%==0 (set PY=python) else (set PY=py)
-%PY% --version >/dev/null 2>&1
-if %errorlevel% NEQ 0 (
-  echo [ERROR] Python is not installed.
-  echo   Install from https://www.python.org/downloads/ and
-  echo   CHECK "Add Python to PATH" during install, then double-click again.
+set "PY="
+python --version >nul 2>&1 && set "PY=python"
+if not defined PY (
+  py --version >nul 2>&1 && set "PY=py"
+)
+if not defined PY (
+  echo [ERROR] Python not found.
+  echo Install Python from https://www.python.org/downloads/
+  echo and CHECK "Add python.exe to PATH" during setup, then run this again.
   echo.
   pause
   exit /b
 )
+echo Python OK: %PY%
+echo.
 
-echo Updating relay from GitHub (latest)...
-where curl >/dev/null 2>&1 && curl -L -s -o relay_agent.py https://raw.githubusercontent.com/lagem1535-create/PMV/main/PALmonitor_web/relay_agent.py
+echo [1/3] Updating relay from GitHub...
+curl -L -s -o relay_agent.py https://raw.githubusercontent.com/lagem1535-create/PMV/main/PALmonitor_web/relay_agent.py
+if errorlevel 1 echo    (could not update - using local copy)
+echo.
 
-echo Preparing connection module (first time only)...
-%PY% -m pip install --quiet --disable-pip-version-check websockets >/dev/null 2>&1
+echo [2/3] Installing websockets (first time can take ~30 seconds)...
+%PY% -m pip install --user --disable-pip-version-check websockets
+if errorlevel 1 (
+  echo    retry without --user ...
+  %PY% -m pip install --disable-pip-version-check websockets
+)
+echo.
 
-echo Registering auto-start and connecting...
+echo [3/3] Registering auto-start and connecting...
 %PY% relay_agent.py --install
-
 echo.
 echo ================================================
-echo   DONE! On your phone app, just log in.
+echo   DONE! Open the phone app and just log in.
 echo   This PC will auto-connect every time it boots.
-echo   (You can close this window.)
 echo ================================================
 echo.
 pause
