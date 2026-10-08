@@ -1,7 +1,3 @@
-# PALmonitor 웹 릴레이 서버 의존성
+# PALmonitor 릴레이 에이전트(relay_agent.py) 의존성
+# 보조 PC(또는 같은 네트워크의 PC)에서 한 번만 설치하면 됩니다.
 websockets>=12.0
-
-# (선택) Firebase ID 토큰을 릴레이에서 실제로 검증하려면 아래도 설치하세요.
-# FIREBASE_PROJECT_ID 환경변수를 설정했을 때만 필요합니다.
-#   pip install "pyjwt[crypto]"
-pyjwt[crypto]>=2.8.0

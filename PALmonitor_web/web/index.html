@@ -2,8 +2,15 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-  <title>PALmonitor 웹</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>PALmonitor</title>
+  <meta name="theme-color" content="#0f1216" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -19,22 +26,9 @@
       <label>비밀번호
         <input id="password" type="password" autocomplete="current-password" placeholder="••••••••" />
       </label>
-
-      <details class="advanced">
-        <summary>연결 설정</summary>
-        <label>릴레이 서버(WebSocket)
-          <input id="relayUrl" type="text" placeholder="ws://릴레이PC주소:58080" />
-        </label>
-        <label>보조 PC 주소
-          <input id="auxHost" type="text" placeholder="192.168.0.20" />
-        </label>
-        <label>보조 PC 포트
-          <input id="auxPort" type="text" value="58712" />
-        </label>
-        <label>연결 암호(SECRET)
-          <input id="secret" type="password" placeholder="보조 PC의 SECRET" />
-        </label>
-      </details>
+      <label>연결 코드(room)
+        <input id="room" type="text" autocomplete="off" placeholder="집 릴레이와 똑같은 코드" />
+      </label>
 
       <button id="loginBtn">로그인 후 연결</button>
       <p id="loginMsg" class="msg"></p>
@@ -46,14 +40,13 @@
     <header class="topbar">
       <span id="status" class="status">연결 중…</span>
       <div class="spacer"></div>
-      <button id="kbBtn" class="tbtn" title="키보드 입력 켜기/끄기">⌨ 키보드 OFF</button>
+      <button id="kbBtn" class="tbtn" title="키보드 입력 켜기/끄기">⌨ OFF</button>
       <button id="fsBtn" class="tbtn" title="전체화면">⛶</button>
       <button id="logoutBtn" class="tbtn">로그아웃</button>
     </header>
     <div id="stage" class="stage">
       <canvas id="screen"></canvas>
     </div>
-    <!-- 모바일 입력용 숨은 텍스트 입력 (키보드 올리기) -->
     <input id="hiddenInput" class="hidden-input" autocomplete="off" autocapitalize="off"
            autocorrect="off" spellcheck="false" />
   </section>

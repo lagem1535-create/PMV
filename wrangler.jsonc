@@ -1,12 +1,30 @@
 {
-  // Cloudflare Workers 정적 자산 배포 설정.
-  // 배포 명령: npx wrangler deploy
-  // 파이썬 릴레이(relay_server.py)는 여기에 올라가지 않습니다 — 보조 PC와 같은
-  // 네트워크의 PC에서 따로 실행하세요. Cloudflare 에는 web/ 정적 파일만 올립니다.
+  // Cloudflare Worker + 정적 자산 배포 설정.  배포: npx wrangler deploy
+  //
+  //  - 정적 웹 앱(PWA)은 web/ 에서 서빙(ASSETS 바인딩).
+  //  - /ws WebSocket 은 Worker 가 받아 Durable Object(Room)로 폰<->릴레이를 중계.
+  //  - 파이썬 릴레이(relay_agent.py)는 집 PC에서 자동 실행 — 여기엔 안 올라갑니다.
   "name": "pmv",
+  "main": "worker/index.js",
   "compatibility_date": "2024-11-01",
   "assets": {
     "directory": "./PALmonitor_web/web",
+    "binding": "ASSETS",
     "not_found_handling": "single-page-application"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROOM", "class_name": "Room" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Room"] }
+  ],
+  "vars": {
+    // Firebase ID 토큰 검증을 켜려면 프로젝트 ID를 넣으세요(비우면 검증 생략).
+    "FIREBASE_PROJECT_ID": "fir-2-f3b80"
   }
+  // HOST_KEY(릴레이 사전공유 키)는 비밀값이므로 대시보드나
+  //   npx wrangler secret put HOST_KEY
+  // 로 설정하세요(설정 안 하면 host 접속이 열려 있음 — room 코드만으로 보호).
 }
