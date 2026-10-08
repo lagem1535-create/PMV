@@ -49,8 +49,8 @@ let conn = null;           // { idToken, room }
 let reconnectTimer = null;
 
 function setStatus(text, cls = "") {
-  statusEl.textContent = text;
-  statusEl.className = "status" + (cls ? " " + cls : "");
+  statusEl.title = text;                       // 사이드바의 점에 마우스 올리면 상태 표시
+  statusEl.className = "dot" + (cls ? " " + cls : "");
 }
 
 // ===========================================================================
@@ -187,32 +187,65 @@ function drawFrame(buf) {
   }).catch(() => { drawing = false; });
 }
 
+// ---------- 화면 확대/이동 (로컬 뷰 변환) ----------
+let zoom = 1, panX = 0, panY = 0;
+function applyTransform() {
+  canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+}
+function setZoom(z) {
+  zoom = Math.max(1, Math.min(5, z));
+  if (zoom === 1) { panX = 0; panY = 0; }
+  applyTransform();
+}
+
 // ===========================================================================
 //  입력 전송
 // ===========================================================================
 function sendInput(data) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "input", data }));
 }
+// 좌표 변환: 캔버스의 화면상 사각형(확대/이동이 반영됨)을 기준으로 원격 픽셀로.
 function toRemoteXY(clientX, clientY) {
   if (!remoteW) return null;
   const r = canvas.getBoundingClientRect();
-  if (clientX < r.left || clientX > r.right || clientY < r.top || clientY > r.bottom) return null;
   const x = Math.round((clientX - r.left) / r.width * remoteW);
   const y = Math.round((clientY - r.top) / r.height * remoteH);
   return [Math.max(0, Math.min(remoteW - 1, x)), Math.max(0, Math.min(remoteH - 1, y))];
 }
-
-canvas.addEventListener("mousemove", (e) => {
-  const p = toRemoteXY(e.clientX, e.clientY);
+function moveTo(clientX, clientY) {
+  const p = toRemoteXY(clientX, clientY);
   if (p) sendInput({ kind: "mouse_move", x: p[0], y: p[1] });
-});
+  return p;
+}
+function clickAt(p, button) {
+  if (!p) return;
+  sendInput({ kind: "mouse_click", x: p[0], y: p[1], button, pressed: true });
+  sendInput({ kind: "mouse_click", x: p[0], y: p[1], button, pressed: false });
+}
+
+// 우클릭 1회 예약(다음 클릭/탭을 우클릭으로)
+let armRight = false;
+function setArmRight(on) {
+  armRight = on;
+  $("rclickBtn").classList.toggle("active", on);
+}
+
+// ---------- 마우스(PC) ----------
+canvas.addEventListener("mousemove", (e) => moveTo(e.clientX, e.clientY));
 canvas.addEventListener("mousedown", (e) => {
   const p = toRemoteXY(e.clientX, e.clientY);
-  if (p) sendInput({ kind: "mouse_click", x: p[0], y: p[1], button: e.button === 2 ? "right" : "left", pressed: true });
+  if (!p) return;
+  const button = (e.button === 2 || armRight) ? "right" : "left";
+  sendInput({ kind: "mouse_click", x: p[0], y: p[1], button, pressed: true });
+  canvas._downBtn = button;
 });
 canvas.addEventListener("mouseup", (e) => {
   const p = toRemoteXY(e.clientX, e.clientY);
-  if (p) sendInput({ kind: "mouse_click", x: p[0], y: p[1], button: e.button === 2 ? "right" : "left", pressed: false });
+  if (!p) return;
+  const button = canvas._downBtn || ((e.button === 2) ? "right" : "left");
+  sendInput({ kind: "mouse_click", x: p[0], y: p[1], button, pressed: false });
+  canvas._downBtn = null;
+  if (armRight) setArmRight(false);
 });
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 canvas.addEventListener("wheel", (e) => {
@@ -220,39 +253,85 @@ canvas.addEventListener("wheel", (e) => {
   sendInput({ kind: "mouse_scroll", dx: 0, dy: e.deltaY > 0 ? -1 : 1 });
 }, { passive: false });
 
-// 터치: 탭=클릭, 드래그=이동, 두 손가락=스크롤
-let touchMoved = false, lastTouchY = 0;
+// ---------- 터치 ----------
+// 1손가락: 탭=클릭, 이동=커서 이동, 길게누름=드래그(버튼 누른 채 이동)
+// 2손가락: 핀치=화면 확대/축소, 함께 이동=화면 이동(패닝)
+let tmode = null;          // '1' | '2'
+let tStart = null, tMoved = false, tDrag = false, lpTimer = null;
+let pinch = null;          // { dist0, zoom0, cx0, cy0, panX0, panY0 }
+
+function dist2(a, b) { return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); }
+
 canvas.addEventListener("touchstart", (e) => {
-  e.preventDefault(); touchMoved = false;
-  if (e.touches.length === 2) { lastTouchY = (e.touches[0].clientY + e.touches[1].clientY) / 2; return; }
-  const t = e.touches[0];
-  const p = toRemoteXY(t.clientX, t.clientY);
-  if (p) sendInput({ kind: "mouse_move", x: p[0], y: p[1] });
-}, { passive: false });
-canvas.addEventListener("touchmove", (e) => {
-  e.preventDefault(); touchMoved = true;
-  if (e.touches.length === 2) {
-    const y = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-    if (Math.abs(y - lastTouchY) > 6) { sendInput({ kind: "mouse_scroll", dx: 0, dy: y < lastTouchY ? -1 : 1 }); lastTouchY = y; }
+  e.preventDefault();
+  if (e.touches.length >= 2) {
+    // 2손가락 시작 → 1손가락 동작 취소
+    clearTimeout(lpTimer); tDrag = false; tmode = "2";
+    const [a, b] = [e.touches[0], e.touches[1]];
+    pinch = { dist0: dist2(a, b), zoom0: zoom,
+              cx0: (a.clientX + b.clientX) / 2, cy0: (a.clientY + b.clientY) / 2,
+              panX0: panX, panY0: panY };
     return;
   }
+  if (tmode === "2") return;
+  tmode = "1";
   const t = e.touches[0];
-  const p = toRemoteXY(t.clientX, t.clientY);
-  if (p) sendInput({ kind: "mouse_move", x: p[0], y: p[1] });
-}, { passive: false });
-canvas.addEventListener("touchend", (e) => {
-  e.preventDefault();
-  if (!touchMoved && e.changedTouches.length) {
-    const t = e.changedTouches[0];
-    const p = toRemoteXY(t.clientX, t.clientY);
-    if (p) {
-      sendInput({ kind: "mouse_click", x: p[0], y: p[1], button: "left", pressed: true });
-      setTimeout(() => sendInput({ kind: "mouse_click", x: p[0], y: p[1], button: "left", pressed: false }), 40);
+  tStart = { x: t.clientX, y: t.clientY }; tMoved = false; tDrag = false;
+  moveTo(t.clientX, t.clientY);
+  lpTimer = setTimeout(() => {                 // 길게 누르면 드래그 시작
+    if (tmode === "1" && !tMoved) {
+      tDrag = true;
+      const p = toRemoteXY(tStart.x, tStart.y);
+      if (p) sendInput({ kind: "mouse_click", x: p[0], y: p[1], button: "left", pressed: true });
     }
+  }, 500);
+}, { passive: false });
+
+canvas.addEventListener("touchmove", (e) => {
+  e.preventDefault();
+  if (tmode === "2" && e.touches.length >= 2 && pinch) {
+    const [a, b] = [e.touches[0], e.touches[1]];
+    const d = dist2(a, b);
+    const cx = (a.clientX + b.clientX) / 2, cy = (a.clientY + b.clientY) / 2;
+    setZoomRaw(pinch.zoom0 * (d / pinch.dist0));
+    if (zoom > 1) {
+      panX = pinch.panX0 + (cx - pinch.cx0);
+      panY = pinch.panY0 + (cy - pinch.cy0);
+    }
+    applyTransform();
+    return;
+  }
+  if (tmode === "1" && e.touches.length === 1) {
+    const t = e.touches[0];
+    if (Math.hypot(t.clientX - tStart.x, t.clientY - tStart.y) > 12) { tMoved = true; clearTimeout(lpTimer); }
+    moveTo(t.clientX, t.clientY);
   }
 }, { passive: false });
 
-// 키보드
+canvas.addEventListener("touchend", (e) => {
+  e.preventDefault();
+  if (tmode === "2") {
+    if (e.touches.length === 0) { tmode = null; pinch = null; }
+    return;
+  }
+  if (tmode === "1") {
+    clearTimeout(lpTimer);
+    if (tDrag) {
+      const t = e.changedTouches[0];
+      const p = toRemoteXY(t.clientX, t.clientY) || toRemoteXY(tStart.x, tStart.y);
+      if (p) sendInput({ kind: "mouse_click", x: p[0], y: p[1], button: "left", pressed: false });
+    } else if (!tMoved) {
+      const p = toRemoteXY(tStart.x, tStart.y);
+      clickAt(p, armRight ? "right" : "left");
+      if (armRight) setArmRight(false);
+    }
+    tmode = null;
+  }
+}, { passive: false });
+
+function setZoomRaw(z) { zoom = Math.max(1, Math.min(5, z)); if (zoom === 1) { panX = 0; panY = 0; } }
+
+// ---------- 키보드 ----------
 const SPECIAL = {
   "Enter": "enter", "Escape": "esc", "Tab": "tab", "Backspace": "backspace",
   "Delete": "delete", "Insert": "insert", " ": "space",
@@ -276,12 +355,6 @@ function onKey(e, down) {
 window.addEventListener("keydown", (e) => onKey(e, true));
 window.addEventListener("keyup", (e) => onKey(e, false));
 
-$("kbBtn").addEventListener("click", () => {
-  keyboardOn = !keyboardOn;
-  $("kbBtn").classList.toggle("active", keyboardOn);
-  $("kbBtn").textContent = keyboardOn ? "⌨ ON" : "⌨ OFF";
-  if (keyboardOn && isTouch()) hiddenInput.focus(); else hiddenInput.blur();
-});
 hiddenInput.addEventListener("input", (e) => {
   if (!keyboardOn) return;
   for (const ch of (e.data || "")) { sendInput({ kind: "key_down", key: ch }); sendInput({ kind: "key_up", key: ch }); }
@@ -295,6 +368,39 @@ hiddenInput.addEventListener("keydown", (e) => {
   }
 });
 function isTouch() { return "ontouchstart" in window || navigator.maxTouchPoints > 0; }
+
+// ---------- 사이드바 버튼 ----------
+$("kbBtn").addEventListener("click", () => {
+  keyboardOn = !keyboardOn;
+  $("kbBtn").classList.toggle("active", keyboardOn);
+  if (keyboardOn && isTouch()) hiddenInput.focus(); else hiddenInput.blur();
+});
+
+$("rclickBtn").addEventListener("click", () => setArmRight(!armRight));
+
+// Ctrl 토글: 켜면 원격에서 Ctrl 을 누른 상태로 유지 → Ctrl+클릭 / Ctrl+C 등 가능
+let ctrlOn = false;
+$("ctrlBtn").addEventListener("click", () => {
+  ctrlOn = !ctrlOn;
+  $("ctrlBtn").classList.toggle("active", ctrlOn);
+  sendInput({ kind: ctrlOn ? "key_down" : "key_up", key: "ctrl" });
+});
+
+// 스크롤 버튼(누르고 있으면 반복)
+function holdRepeat(btn, fn) {
+  let to = null, iv = null;
+  const start = (e) => { e.preventDefault(); fn(); to = setTimeout(() => { iv = setInterval(fn, 110); }, 300); };
+  const stop = () => { clearTimeout(to); clearInterval(iv); to = iv = null; };
+  btn.addEventListener("pointerdown", start);
+  btn.addEventListener("pointerup", stop);
+  btn.addEventListener("pointerleave", stop);
+  btn.addEventListener("pointercancel", stop);
+}
+holdRepeat($("scrollUpBtn"),   () => sendInput({ kind: "mouse_scroll", dx: 0, dy: 1 }));
+holdRepeat($("scrollDownBtn"), () => sendInput({ kind: "mouse_scroll", dx: 0, dy: -1 }));
+
+$("zoomInBtn").addEventListener("click", () => setZoom(zoom * 1.3));
+$("zoomOutBtn").addEventListener("click", () => setZoom(zoom / 1.3));
 
 $("fsBtn").addEventListener("click", () => {
   if (!document.fullscreenElement) viewerView.requestFullscreen?.();

@@ -188,7 +188,7 @@ def relaunch_hidden_if_needed():
 
 
 # ---------- 중계 본체 ----------
-GRACE_SECONDS = 12   # 폰이 잠깐 끊겨도 이 시간 안에 돌아오면 보조 연결을 유지(깜빡임 방지)
+GRACE_SECONDS = 45   # 폰이 잠깐 끊겨도 이 시간 안에 돌아오면 보조 연결을 유지(깜빡임 방지)
 
 
 async def _aux_connect(cfg):

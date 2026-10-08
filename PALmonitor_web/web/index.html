@@ -35,16 +35,21 @@
 
   <!-- ===== 뷰어 화면 ===== -->
   <section id="viewer-view" class="view hidden">
-    <header class="topbar">
-      <span id="status" class="status">연결 중…</span>
-      <div class="spacer"></div>
-      <button id="kbBtn" class="tbtn" title="키보드 입력 켜기/끄기">⌨ OFF</button>
-      <button id="fsBtn" class="tbtn" title="전체화면">⛶</button>
-      <button id="logoutBtn" class="tbtn">로그아웃</button>
-    </header>
     <div id="stage" class="stage">
       <canvas id="screen"></canvas>
     </div>
+    <aside id="sidebar" class="sidebar">
+      <span id="status" class="dot" title="상태"></span>
+      <button id="kbBtn" class="sbtn" title="키보드">⌨</button>
+      <button id="rclickBtn" class="sbtn" title="다음 탭을 우클릭">우클릭</button>
+      <button id="ctrlBtn" class="sbtn" title="Ctrl 켜기/끄기">Ctrl</button>
+      <button id="scrollUpBtn" class="sbtn" title="위로 스크롤">▲</button>
+      <button id="scrollDownBtn" class="sbtn" title="아래로 스크롤">▼</button>
+      <button id="zoomInBtn" class="sbtn" title="확대">＋</button>
+      <button id="zoomOutBtn" class="sbtn" title="축소">－</button>
+      <button id="fsBtn" class="sbtn" title="전체화면">⛶</button>
+      <button id="logoutBtn" class="sbtn" title="로그아웃">⎋</button>
+    </aside>
     <input id="hiddenInput" class="hidden-input" autocomplete="off" autocapitalize="off"
            autocorrect="off" spellcheck="false" />
   </section>
