@@ -355,13 +355,39 @@ function onKey(e, down) {
 window.addEventListener("keydown", (e) => onKey(e, true));
 window.addEventListener("keyup", (e) => onKey(e, false));
 
+// 한 글자씩 원격으로 타이핑(유니코드 그대로 전송 → 보조 PC가 그 문자를 입력)
+function typeString(s) {
+  for (const ch of (s || "")) {
+    sendInput({ kind: "key_down", key: ch });
+    sendInput({ kind: "key_up", key: ch });
+  }
+}
+// 모바일 한글/일본어/중국어는 "조합(IME)" 방식이라, 조합이 끝났을 때(compositionend)
+// 완성된 글자를 보내야 제대로 입력됨. 조합 중(input, isComposing)엔 보내지 않음.
+let composing = false;
+hiddenInput.addEventListener("compositionstart", () => { composing = true; });
+hiddenInput.addEventListener("compositionend", (e) => {
+  composing = false;
+  if (keyboardOn) typeString(e.data || "");
+  hiddenInput.value = "";
+});
 hiddenInput.addEventListener("input", (e) => {
   if (!keyboardOn) return;
-  for (const ch of (e.data || "")) { sendInput({ kind: "key_down", key: ch }); sendInput({ kind: "key_up", key: ch }); }
+  if (composing || e.isComposing) return;                 // 조합 중은 compositionend 에서 처리
+  if (e.inputType === "insertCompositionText") return;
+  if (e.inputType === "deleteContentBackward") {          // 백스페이스
+    sendInput({ kind: "key_down", key: "backspace" });
+    sendInput({ kind: "key_up", key: "backspace" });
+  } else if (e.data) {
+    typeString(e.data);                                   // 영문/숫자/기호 등
+  } else if (e.inputType === "insertLineBreak") {
+    sendInput({ kind: "key_down", key: "enter" });
+    sendInput({ kind: "key_up", key: "enter" });
+  }
   hiddenInput.value = "";
 });
 hiddenInput.addEventListener("keydown", (e) => {
-  if (!keyboardOn) return;
+  if (!keyboardOn || composing || e.isComposing) return;
   if (e.key === "Backspace" || e.key === "Enter") {
     const k = SPECIAL[e.key];
     sendInput({ kind: "key_down", key: k }); sendInput({ kind: "key_up", key: k });
@@ -403,6 +429,15 @@ $("zoomInBtn").addEventListener("click", () => setZoom(zoom * 1.3));
 $("zoomOutBtn").addEventListener("click", () => setZoom(zoom / 1.3));
 
 $("fsBtn").addEventListener("click", () => {
-  if (!document.fullscreenElement) viewerView.requestFullscreen?.();
-  else document.exitFullscreen?.();
+  const el = viewerView;
+  const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+  if (!fsEl) {
+    const req = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitRequestFullScreen;
+    if (req) { try { req.call(el); } catch (e) {} }
+    else { document.body.classList.add("immersive"); }   // iOS 등 미지원 시 CSS로 최대화
+  } else {
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    if (exit) { try { exit.call(document); } catch (e) {} }
+    document.body.classList.remove("immersive");
+  }
 });
