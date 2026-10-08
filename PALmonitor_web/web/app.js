@@ -124,18 +124,29 @@ function connect() {
     if (typeof ev.data === "string") handleControl(JSON.parse(ev.data));
     else drawFrame(ev.data);
   };
-  sock.onclose = () => { if (ws !== sock) return; setStatus("연결 끊김 — 재접속 중…", "bad"); scheduleReconnect(); };
-  sock.onerror = () => setStatus("연결 오류", "bad");
+  sock.onclose = () => { if (ws !== sock) return; ws = null; setStatus("다시 연결 중…"); scheduleReconnect(); };
+  sock.onerror = () => { /* onclose 가 이어서 처리 */ };
 }
 
-function scheduleReconnect() {
+function scheduleReconnect(delay = 1000) {
+  if (!conn) return;
   clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(() => {
     const u = auth.currentUser;
     if (!u) { showLogin(); return; }
     u.getIdToken().then((t) => { if (conn) conn.idToken = t; connect(); }).catch(() => connect());
-  }, 2000);
+  }, delay);
 }
+
+// 폰 화면을 다시 켜거나(백그라운드→포그라운드) 네트워크가 돌아오면 즉시 재연결
+function reconnectNow() {
+  if (!conn) return;
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+  scheduleReconnect(200);
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) reconnectNow(); });
+window.addEventListener("online", reconnectNow);
+window.addEventListener("focus", reconnectNow);
 
 function teardown() {
   clearTimeout(reconnectTimer);
@@ -149,7 +160,7 @@ function handleControl(msg) {
   if (type === "peer") {
     if (data === "online") setStatus("연결됨", "ok");
     else if (data === "waiting") setStatus("릴레이(집 PC) 기다리는 중…");
-    else if (data === "offline") setStatus("릴레이 오프라인 — 집 PC/릴레이 확인", "bad");
+    else if (data === "offline") setStatus("집 PC 잠시 끊김 — 다시 연결 중…");  // 화면은 유지
   } else if (type === "info") {
     remoteW = data.width; remoteH = data.height;
     canvas.width = remoteW; canvas.height = remoteH;
