@@ -1,3 +1,4 @@
 # PALmonitor 릴레이 에이전트(relay_agent.py) 의존성
 # 보조 PC(또는 같은 네트워크의 PC)에서 한 번만 설치하면 됩니다.
 websockets>=12.0
+pynput>=1.7      # 한글 등 글자 입력을 릴레이가 직접 타이핑하는 데 사용

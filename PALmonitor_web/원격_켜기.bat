@@ -29,10 +29,10 @@ if errorlevel 1 echo    (could not update - using local copy)
 echo.
 
 echo [2/3] Installing websockets (first time can take ~30 seconds)...
-%PY% -m pip install --user --disable-pip-version-check websockets
+%PY% -m pip install --user --disable-pip-version-check websockets pynput
 if errorlevel 1 (
   echo    retry without --user ...
-  %PY% -m pip install --disable-pip-version-check websockets
+  %PY% -m pip install --disable-pip-version-check websockets pynput
 )
 echo.
 
