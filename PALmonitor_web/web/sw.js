@@ -1,6 +1,6 @@
 // PALmonitor PWA 서비스워커 — 앱 셸만 가볍게 캐시(네트워크 우선).
 // 화면 스트림/로그인은 항상 네트워크로 가야 하므로 /ws 와 외부 요청은 건드리지 않음.
-const CACHE = "pal-shell-v3";
+const CACHE = "pal-shell-v4";
 const SHELL = [
   "./", "./index.html", "./style.css", "./app.js",
   "./manifest.webmanifest", "./icon.svg", "./icon-192.png", "./icon-512.png",
