@@ -1,0 +1,7 @@
+# PALmonitor 웹 릴레이 서버 의존성
+websockets>=12.0
+
+# (선택) Firebase ID 토큰을 릴레이에서 실제로 검증하려면 아래도 설치하세요.
+# FIREBASE_PROJECT_ID 환경변수를 설정했을 때만 필요합니다.
+#   pip install "pyjwt[crypto]"
+pyjwt[crypto]>=2.8.0
