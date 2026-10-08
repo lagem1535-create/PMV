@@ -42,6 +42,18 @@ import os
 import struct
 import sys
 
+# 글자 입력(type_text)을 이 PC에서 직접 처리하기 위한 키보드 컨트롤러.
+# 릴레이는 보조 PC와 같은 PC에서 돌아가므로(기본 aux_host=127.0.0.1), 여기서 바로
+# keyboard.type 으로 한글/영어/이모지를 정확히 입력할 수 있음(보조 프로그램 수정 불필요).
+try:
+    from pynput.keyboard import Controller as _KbController
+    _kb = _KbController()
+except Exception:
+    _kb = None
+
+def _is_local_host(host):
+    return str(host).strip().lower() in ("127.0.0.1", "localhost", "::1", "")
+
 try:
     import websockets
 except ImportError:
@@ -317,7 +329,17 @@ async def session(ws, cfg):
             d = obj.get("data")
             try:
                 if t == "input":
-                    await aux_send(w, "input", json.dumps(d).encode("utf-8"))
+                    # 글자 입력은 릴레이가 직접 타이핑(보조 프로그램 수정 없이 한글 OK).
+                    # 보조 PC가 원격(다른 PC)이면 그 PC에서 입력돼야 하므로 그냥 전달.
+                    if isinstance(d, dict) and d.get("kind") == "type_text" \
+                            and _is_local_host(cfg["aux_host"]) and _kb is not None:
+                        try:
+                            _kb.type(d.get("text", ""))
+                        except Exception:
+                            # 직접 타이핑 실패 시 보조 쪽으로도 시도(업데이트돼 있으면 처리)
+                            await aux_send(w, "input", json.dumps(d).encode("utf-8"))
+                    else:
+                        await aux_send(w, "input", json.dumps(d).encode("utf-8"))
                 elif t == "cmd":
                     await aux_send(w, "cmd", str(d or "").encode("utf-8"))
                 elif t == "ping":
