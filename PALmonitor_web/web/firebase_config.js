@@ -22,3 +22,7 @@ export const firebaseConfig = {
 
 // Analytics 사용 여부(측정 ID가 있을 때만). 기본 꺼둠 — 켜려면 true.
 export const enableAnalytics = false;
+
+// 연결 코드(고정). 폰 앱과 집 릴레이가 같은 값을 쓰면 자동으로 짝지어집니다.
+// 당신이 입력할 필요 없이 코드에 박혀 있습니다. (relay_agent.py 의 ROOM 과 동일해야 함)
+export const ROOM = "palmon-7qk2m9xz4rt8lw";

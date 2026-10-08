@@ -29,10 +29,10 @@ Cloudflare Worker 에 host 로 붙고, 폰(viewer)과 Worker 가 짝지어지면
     secret   보조 PC 연결 암호(SECRET, 기본 1234)
     room     (보통 비워둠) 연결 코드를 직접 지정하고 싶을 때만
 
-실행:
-    pip install websockets
-    # 설정 저장 + UID 자동 조회 + 자동시작 등록 + 숨김 실행:
-    python relay_agent.py --install --worker wss://... --email you@example.com --password ****  --secret 1234
+실행(가장 쉬움): 이 폴더의  원격_켜기.bat  을 더블클릭.
+  → Worker 주소와 연결 코드(room)가 코드에 이미 박혀 있어, 아무 옵션 없이
+    python relay_agent.py --install  만으로 자동시작 등록 + 숨김 실행됩니다.
+  → 보조 PC가 다른 PC면 한 번만:  python relay_agent.py --install --aux_host <보조PC_IP>
 """
 
 import argparse
@@ -56,8 +56,11 @@ AUTORUN_REG_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
 ALLOWED_UPSTREAM = {"input", "cmd", "ping"}
 
 # 폰 앱과 같은 Firebase 프로젝트(fir-2-f3b80)의 웹 API 키(공개값).
-# 계정 UID를 자동 조회(signInWithPassword)하는 데만 씁니다.
 DEFAULT_API_KEY = "AIzaSyCXqCgMZV-8bRwy3cqT21mFToAkd2o4kiA"
+
+# ↓↓↓ 이미 코드에 박혀 있는 기본값 — 보통 그대로 두면 됩니다(설정 불필요) ↓↓↓
+DEFAULT_WORKER = "wss://pmv.lagem1535.workers.dev"   # Cloudflare 배포 주소
+DEFAULT_ROOM = "palmon-7qk2m9xz4rt8lw"               # 폰 앱(firebase_config.js의 ROOM)과 동일
 
 
 # ---------- auxiliary 프로토콜 (asyncio) ----------
@@ -94,7 +97,7 @@ async def aux_recv(reader):
 # ---------- 설정 ----------
 def load_config(args):
     cfg = {"aux_host": "127.0.0.1", "aux_port": 58712, "secret": "1234",
-           "worker": "", "room": "", "key": "",
+           "worker": DEFAULT_WORKER, "room": DEFAULT_ROOM, "key": "",
            "email": "", "password": "", "apikey": DEFAULT_API_KEY}
     if os.path.exists(CONFIG_PATH):
         try:
