@@ -355,12 +355,13 @@ function onKey(e, down) {
 window.addEventListener("keydown", (e) => onKey(e, true));
 window.addEventListener("keyup", (e) => onKey(e, false));
 
-// 한 글자씩 원격으로 타이핑(유니코드 그대로 전송 → 보조 PC가 그 문자를 입력)
+// 글자를 통째로 원격에 입력. 보조 PC가 keyboard.type 로 그대로 쳐주므로 한글/이모지까지 정확.
+// (한글 자모가 분리돼 오면 NFC 로 완성형으로 합쳐서 보냄)
 function typeString(s) {
-  for (const ch of (s || "")) {
-    sendInput({ kind: "key_down", key: ch });
-    sendInput({ kind: "key_up", key: ch });
-  }
+  if (!s) return;
+  let t = s;
+  try { t = s.normalize("NFC"); } catch (e) {}
+  sendInput({ kind: "type_text", text: t });
 }
 // 모바일 한글/일본어/중국어는 "조합(IME)" 방식이라, 조합이 끝났을 때(compositionend)
 // 완성된 글자를 보내야 제대로 입력됨. 조합 중(input, isComposing)엔 보내지 않음.
