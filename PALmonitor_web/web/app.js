@@ -7,7 +7,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/fireba
 import {
   getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-import { firebaseConfig, enableAnalytics } from "./firebase_config.js";
+import { firebaseConfig, enableAnalytics, ROOM } from "./firebase_config.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -70,9 +70,8 @@ async function doLogin() {
   try {
     const cred = await signInWithEmailAndPassword(auth, email, password);
     const idToken = await cred.user.getIdToken();
-    const room = cred.user.uid;   // 연결 코드 = 로그인 계정 UID (자동)
     saveCfg({ email });
-    conn = { idToken, room };
+    conn = { idToken, room: ROOM };   // 연결 코드는 고정값(자동)
     showViewer();
     connect();
   } catch (e) {

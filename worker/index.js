@@ -32,18 +32,12 @@ async function handleWs(request, env, url) {
     return new Response("room and role(viewer|host) required", { status: 400 });
   }
 
-  // viewer 인증(선택): Firebase ID 토큰 검증 + room 이 그 계정 UID인지 확인
+  // viewer 인증(선택): Firebase ID 토큰(=로그인 됨) 검증
   if (role === "viewer") {
     const token = url.searchParams.get("idToken") || "";
     const result = await verifyFirebaseToken(token, env);
     if (result === false) {
       return new Response("auth failed", { status: 401 });
-    }
-    // 검증이 켜져 있으면(payload 반환), room 은 반드시 로그인 계정의 UID 여야 함
-    if (result && typeof result === "object") {
-      if (room !== result.sub) {
-        return new Response("room must match account", { status: 403 });
-      }
     }
   } else if (role === "host") {
     // host(릴레이)는 사전 공유 키로 인증(설정된 경우)
