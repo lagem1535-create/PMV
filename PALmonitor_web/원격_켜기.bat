@@ -1,38 +1,39 @@
 @echo off
-chcp 65001 >nul
+setlocal
 cd /d "%~dp0"
-title PALmonitor 원격 켜기
+title PALmonitor Remote
 
 echo ================================================
-echo   PALmonitor 원격 켜기
+echo   PALmonitor Remote - turning on
 echo ================================================
 echo.
-echo 파이썬/필요한 것 확인 중...
 
-where python >nul 2>&1
+where python >/dev/null 2>&1
 if %errorlevel%==0 (set PY=python) else (set PY=py)
-
-%PY% --version >nul 2>&1
+%PY% --version >/dev/null 2>&1
 if %errorlevel% NEQ 0 (
-  echo [오류] 파이썬이 설치되어 있지 않습니다.
-  echo   https://www.python.org/downloads/ 에서 설치 후, 설치 중
-  echo   "Add Python to PATH" 를 꼭 체크하세요. 그 다음 이 파일을 다시 더블클릭.
+  echo [ERROR] Python is not installed.
+  echo   Install from https://www.python.org/downloads/ and
+  echo   CHECK "Add Python to PATH" during install, then double-click again.
   echo.
   pause
   exit /b
 )
 
-echo 연결 모듈 준비 중(처음 한 번만 조금 걸립니다)...
-%PY% -m pip install --quiet --disable-pip-version-check websockets >nul 2>&1
+echo Updating relay from GitHub (latest)...
+where curl >/dev/null 2>&1 && curl -L -s -o relay_agent.py https://raw.githubusercontent.com/lagem1535-create/PMV/main/PALmonitor_web/relay_agent.py
 
-echo 자동 연결 등록 중...
+echo Preparing connection module (first time only)...
+%PY% -m pip install --quiet --disable-pip-version-check websockets >/dev/null 2>&1
+
+echo Registering auto-start and connecting...
 %PY% relay_agent.py --install
 
 echo.
 echo ================================================
-echo   완료! 이제 폰 앱에서 "로그인"만 하면 자동 연결됩니다.
-echo   이 PC는 앞으로 켤 때마다 자동으로 실행됩니다.
-echo   (이 창은 닫아도 됩니다)
+echo   DONE! On your phone app, just log in.
+echo   This PC will auto-connect every time it boots.
+echo   (You can close this window.)
 echo ================================================
 echo.
 pause
