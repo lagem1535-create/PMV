@@ -41,6 +41,7 @@ button#loginBtn {
 }
 button#loginBtn:active { transform: translateY(1px); }
 .msg { min-height: 18px; margin: 12px 0 0; font-size: 13px; color: var(--bad); text-align: center; }
+.hint { margin: 10px 0 0; font-size: 12px; color: var(--muted); text-align: center; }
 
 /* 뷰어 */
 #viewer-view { display: flex; flex-direction: column; background: #000; }

@@ -39,7 +39,6 @@ function saveCfg(c) { try { localStorage.setItem(LS, JSON.stringify(c)); } catch
 (function restore() {
   const c = loadCfg();
   if (c.email) $("email").value = c.email;
-  if (c.room) $("room").value = c.room;
 })();
 
 // ---------- 상태 ----------
@@ -58,23 +57,21 @@ function setStatus(text, cls = "") {
 //  로그인
 // ===========================================================================
 $("loginBtn").addEventListener("click", doLogin);
-$("room").addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
 $("password").addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
 
 async function doLogin() {
   loginMsg.textContent = "";
   const email = $("email").value.trim();
   const password = $("password").value;
-  const room = $("room").value.trim();
   if (!email || !password) { loginMsg.textContent = "이메일과 비밀번호를 입력하세요."; return; }
-  if (!room) { loginMsg.textContent = "연결 코드(room)를 입력하세요."; return; }
 
   loginMsg.style.color = "var(--muted)";
   loginMsg.textContent = "로그인 중…";
   try {
     const cred = await signInWithEmailAndPassword(auth, email, password);
     const idToken = await cred.user.getIdToken();
-    saveCfg({ email, room });
+    const room = cred.user.uid;   // 연결 코드 = 로그인 계정 UID (자동)
+    saveCfg({ email });
     conn = { idToken, room };
     showViewer();
     connect();
