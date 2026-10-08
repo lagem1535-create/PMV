@@ -190,12 +190,24 @@ def relaunch_hidden_if_needed():
 # ---------- 중계 본체 ----------
 async def bridge_aux(ws, cfg):
     """viewer 가 온라인인 동안 보조 PC에 붙어 양방향 중계. 끝나면 반환."""
-    try:
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(cfg["aux_host"], int(cfg["aux_port"])), timeout=8)
-    except Exception as e:
-        await ws.send(json.dumps({"type": "error", "data": f"보조 PC 접속 실패: {e}"}))
-        return
+    # 보조 PC 서버(auxiliary_server)가 그 순간 안 떠 있거나 재시작 중일 수 있으므로
+    # 바로 포기하지 않고 잠깐씩 재시도한다(최대 약 30초). 그동안 폰에는 상태만 알림.
+    reader = writer = None
+    attempt = 0
+    while reader is None:
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(cfg["aux_host"], int(cfg["aux_port"])), timeout=5)
+        except Exception as e:
+            attempt += 1
+            if attempt == 1 or attempt % 5 == 0:
+                await ws.send(json.dumps({"type": "info_meta",
+                    "data": {"hostname": "보조 PC 연결 대기중… (서버가 켜져 있는지 확인)"}}))
+            if attempt >= 30:
+                await ws.send(json.dumps({"type": "error",
+                    "data": f"보조 PC에 연결하지 못했습니다. PALmonitor 서버가 실행 중인지 확인하세요. ({e})"}))
+                return
+            await asyncio.sleep(2)
     try:
         await aux_send(writer, "auth", str(cfg["secret"]).encode("utf-8"))
         resp = await aux_recv(reader)
