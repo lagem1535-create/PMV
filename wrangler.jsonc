@@ -1,0 +1,12 @@
+{
+  // Cloudflare Workers 정적 자산 배포 설정.
+  // 배포 명령: npx wrangler deploy
+  // 파이썬 릴레이(relay_server.py)는 여기에 올라가지 않습니다 — 보조 PC와 같은
+  // 네트워크의 PC에서 따로 실행하세요. Cloudflare 에는 web/ 정적 파일만 올립니다.
+  "name": "pmv",
+  "compatibility_date": "2024-11-01",
+  "assets": {
+    "directory": "./PALmonitor_web/web",
+    "not_found_handling": "single-page-application"
+  }
+}
